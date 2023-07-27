@@ -1,3 +1,7 @@
+const int WHITE_ANGLE = 2000; // White color position
+const int GREY_ANGLE = 1000;  // Grey color position
+const int BLACK_ANGLE = 501; 
+
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
@@ -9,31 +13,229 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 
 uint8_t servonum = 13;
-const int WHITE_ANGLE = 2000; // White color position
-const int GREY_ANGLE = 1000;  // Grey color position
-const int BLACK_ANGLE = 501;    // Black color position
 
- int whiteThreshold;
- int greyThreshold;
-// Pin assignments
-#define LIGHT_SENSOR_PIN_1 1 // Analog pin for light sensor
-#define LIGHT_SENSOR_PIN_2 2 // Analog pin for light sensor
-#define LIGHT_SENSOR_PIN_3 3 // Analog pin for light sensor
+struct Node {
+    int data;
+    Node* next;
+};
 
-// Variables for calibration
+class LinkedList {
+private:
+    Node* head;
+    int size;
+    int maxSize;
+    int count2;
+    int initialreadings;
+    int count3;
+    bool startCounter1;
+    bool startCounter2;
 
+    bool state;
+
+    int white;
+    int black;
+    int grey;
+    int colorDetected;
+    int thresholdBlack;
+    int thresholdWhite;
+    byte idS;
+
+public:
+    LinkedList(int maxSize, byte idOfSensor) : head(nullptr), size(0), maxSize(maxSize), idS(idOfSensor), count2(0),initialreadings(0), count3(0), startCounter2(false), startCounter1(true), white(0), black(0), grey(0), thresholdBlack(0), thresholdWhite(0), state(false), colorDetected(0) {}
+
+    void addToCircularList(int newValue) {
+        if (size == maxSize) {
+            // Si la lista ha alcanzado el tamaño máximo, elimina el último nodo
+            deleteLastNode();
+        }
+        
+        Node* newNode = new Node;
+        newNode->data = newValue;
+        newNode->next = head;
+
+        head = newNode;
+        size++;
+    }
+
+    void deleteLastNode() {
+        if (head == nullptr) {
+            return;
+        }
+
+        if (size == 1) {
+            delete head;
+            head = nullptr;
+        } else {
+            Node* current = head;
+            while (current->next->next != nullptr) {
+                current = current->next;
+            }
+            delete current->next;
+            current->next = nullptr;
+        }
+        size--;
+    }
+
+    void calibration() {
+        initialreadings++;
+        Serial.print("Reading ");
+        Serial.print(initialreadings);
+        Serial.print(", of Sensor: ");
+        Serial.print(idS);
+        Serial.print(". ");
+
+        Node* current = head;
+        byte count = 0;
+        int lastNode = current->data;
+        while (current != nullptr && count < 10 ) {
+        current = current->next;
+        count++;
+        }
+
+        int tenNodesBehind = current->data;
+//        Serial.print("Last: ");
+//        Serial.print(lastNode);
+//        Serial.print(" TenBehind: ");
+//        Serial.print(tenNodesBehind);
+//        Serial.println();
+        
+        int difference = tenNodesBehind - lastNode;
+        
+        if (difference < 10 && initialreadings > 9 && startCounter1 == true && startCounter2 == false){
+          count2++;
+          }else{
+            count2 = 0;
+          }
+
+        if (count2 == 20){
+            black = lastNode;
+            Serial.print("IT'S BLACK !!!");
+            Serial.println();
+            startCounter1 = false;
+          }
+
+            if (startCounter1 == false && startCounter2 == false && difference > 100){
+              startCounter2 = true;
+              Serial.println("                        -------------------------                         ");
+            }
+        
+      if (startCounter1 == false && startCounter2 == true && difference < 10){
+          count3++;
+          }else{
+            count3 = 0;
+          }
+         if (count3 == 10){
+            white = lastNode;
+            Serial.print("IT'S WHITE !!!");
+            Serial.println();
+            startCounter1 = true;
+          }
+
+        if (startCounter1 == true && startCounter2 == true){
+          int rangeOfValues = black - white; 
+            
+          thresholdBlack = black - (rangeOfValues*0.22);
+          thresholdWhite = white + (rangeOfValues*0.29);
+          Serial.print("========================= # Sensor Calibration # =========================");
+          Serial.println();
+          
+          Serial.print("Black Value: ");
+          Serial.println(black);
+
+          Serial.print("White Value: ");
+          Serial.println(white);
+
+          Serial.print("Black Threshold: ");
+          Serial.print(thresholdBlack);
+          Serial.println();
+
+          Serial.print("White Threshold: ");
+          Serial.print(thresholdWhite);
+          Serial.println();
+
+          state = true;
+        }
+      }
+
+      bool getState(){
+        return state;
+      }
+
+      int findState(int reading){
+
+        if (reading > thresholdBlack){
+          colorDetected = BLACK_ANGLE;
+        }
+
+        if (reading < thresholdBlack && reading > thresholdWhite){
+          colorDetected = GREY_ANGLE;
+        }
+
+        if (reading < thresholdWhite){
+          colorDetected = WHITE_ANGLE;
+        }
+
+        return colorDetected;
+      }
+
+    
+
+
+};
+
+int white = 0;
+int black = 0;
+
+const int listSize = 20;
+LinkedList sensor_1(listSize, 1);
+
+LinkedList sensor_2(listSize, 2);
+
+LinkedList sensor_3(listSize, 3);
 
 void setup() {
-  Serial.begin(9600);
-  pwm.begin();
-  pwm.setOscillatorFrequency(27000000);
-  pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
-  pwm.writeMicroseconds(13, GREY_ANGLE);
-  pwm.writeMicroseconds(14, GREY_ANGLE);
-  pwm.writeMicroseconds(15, GREY_ANGLE);
-  calibrateThresholds();
+    // Initialize Serial communication for debugging
+    Serial.begin(9600);
+    pwm.begin();
+    pwm.setOscillatorFrequency(27000000);
+    pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
+    pwm.writeMicroseconds(13, GREY_ANGLE);
+    pwm.writeMicroseconds(14, GREY_ANGLE);
+    pwm.writeMicroseconds(15, GREY_ANGLE);
+}
+
+void loop() {
+    // Simulating the process of receiving new values
+    int read_1 = analogRead(A1); // Replace this with your method of reading the new value
+    int read_2 = analogRead(A2); // Replace this with your method of reading the new value
+    int read_3 = analogRead(A3); // Replace this with your method of reading the new value
+
+    // Add the new value to the circular list
+
+    // Print the updated list for debugging
+    
+    if (!sensor_1.getState()){
+      sensor_1.addToCircularList(read_1);
+      sensor_1.calibration();
+    }
+    if (!sensor_2.getState()){
+      sensor_2.addToCircularList(read_2);
+      sensor_2.calibration();
+    }
+    if (!sensor_3.getState()){
+      sensor_3.calibration();
+      sensor_3.addToCircularList(read_3);
+    }
+      pwm.writeMicroseconds(13, sensor_1.findState(read_1));
+      pwm.writeMicroseconds(14, sensor_2.findState(read_2));
+      pwm.writeMicroseconds(15, sensor_3.findState(read_3));
+    Serial.println("");
+
+    // Add some delay to prevent rapid updates (replace this with your required delay)
+    delay(10);
 
 }
+
 void setServoPulse(uint8_t n, double pulse) {
   double pulselength;
   pulselength = 1000000;   // 1,000,000 us per second
@@ -45,112 +247,4 @@ void setServoPulse(uint8_t n, double pulse) {
   pulse /= pulselength;
   Serial.println(pulse);
   pwm.setPWM(n, 0, pulse);
-}
-
-void loop() {
-  // Drive each servo one at a time using setPWM()
-
-  int sensorValue1 = analogRead(LIGHT_SENSOR_PIN_1);
-  int sensorValue2 = analogRead(LIGHT_SENSOR_PIN_2);
-  int sensorValue3 = analogRead(LIGHT_SENSOR_PIN_3);
-  
-  Serial.print("2: ");
-  Serial.print(sensorValue2);
-  Serial.print("   1: ");
-  Serial.print(sensorValue1);
-  Serial.print("   3: ");
-  Serial.println(sensorValue3);
-
-
-//--Servo-1---------------------------------------------------------------------------------------
-  if (sensorValue1 <= whiteThreshold){                //Si ve blanco gira hacia adelante
-    pwm.writeMicroseconds(13, WHITE_ANGLE);
-  }
-  else if (sensorValue1 <= greyThreshold){             //Si ve gris para 
-    pwm.writeMicroseconds(13, GREY_ANGLE);
-  }
-  else{             //Si ve negro gira hacia atras
-    pwm.writeMicroseconds(13, BLACK_ANGLE);
-  }
-
-//--Servo-2----------------------------------------------------------------------------------------
-
-  if (sensorValue2 <= whiteThreshold){                //Si ve blanco gira hacia adelante
-    pwm.writeMicroseconds(14, WHITE_ANGLE);
-  }
-  else if (sensorValue2 <= greyThreshold){             //Si ve gris para 
-    pwm.writeMicroseconds(14, GREY_ANGLE);
-  }
-  else{             //Si ve negro gira hacia atras
-    pwm.writeMicroseconds(14, BLACK_ANGLE);
-  }
-
-  //--Servo-3----------------------------------------------------------------------------------------
-
-    if (sensorValue3 <= whiteThreshold){                //Si ve blanco gira hacia adelante
-    pwm.writeMicroseconds(15, WHITE_ANGLE);
-  }
-  else if (sensorValue3 <= greyThreshold){             //Si ve gris para 
-    pwm.writeMicroseconds(15, GREY_ANGLE);
-  }
-  else{             //Si ve negro gira hacia atras
-    pwm.writeMicroseconds(15, BLACK_ANGLE);
-  }
-}
-  void calibrateThresholds()
-{
-    // Function to calibrate the thresholds based on user input
-    int whiteArray[10];
-    int blackArray[10];
-    // Print calibration instructions
-    Serial.println("Calibration Mode");
-    Serial.println("Place the light sensor in front of a grey screen.");
-    Serial.println("Press '1' when ready.");
-
-    // Wait for user input
-    while (!Serial.available())
-    {
-        // Wait for serial input
-    }
-
-    // Clear the input buffer
-    Serial.read();
-
-    // Get the sensor value for grey
-
-    int whiteReadings = 0;
-    for (int i = 0; i < 10; i++){
-      whiteArray[i] = analogRead(LIGHT_SENSOR_PIN_1);
-      whiteReadings += whiteArray[i];
-    }
-    whiteReadings = whiteReadings /10;
-Serial.println("Press '1' when ready.");
-Serial.println(whiteReadings);
-    int blackReadings = 0;
-    for (int i = 0; i < 10; i++){
-      blackArray[i] = analogRead(LIGHT_SENSOR_PIN_2);
-      blackReadings += blackArray[i];
-    }
-    blackReadings = blackReadings /10;
-Serial.println("Press '1' when ready.");
-Serial.println(blackReadings);
-
-
-    // Calculate the new thresholds
-    int greyValue = (blackReadings + whiteReadings)/2;
-    greyThreshold = (blackReadings + greyValue)/2;
-    whiteThreshold =(greyValue + whiteReadings)/2;
-
-    // Print the grey value
-    Serial.print("Grey value: ");
-    Serial.println(greyThreshold);
-    
-    // Print the new thresholds
-    Serial.print("White threshold: ");
-    Serial.println(whiteThreshold);
-    Serial.print("Grey threshold: ");
-    Serial.println(greyThreshold);
-
-    // Print calibration complete message
-    Serial.println("Calibration complete");
 }
